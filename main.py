@@ -34,7 +34,7 @@ googledict = {
 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
 creds = ServiceAccountCredentials.from_json_keyfile_dict(googledict, scope)
 client = gspread.authorize(creds)
-mysheet = client.open("Admin").worksheet("NR")
+mysheet = client.open("RAW").worksheet("biodata")
 
 SECTION = range(1)
 
@@ -47,7 +47,8 @@ def start_handler(update: Update, context: CallbackContext):
 
     registered = userid in all_userid
     if not registered:
-        context.bot.send_message(update.effective_user.id,"Please type /register to register yourself")
+        context.bot.send_message(update.effective_user.id,f"Please type /register to register yourself")
+
 
 # this is a CommandHandler
 def register_handler(update: Update, context: CallbackContext) -> int:
@@ -75,6 +76,7 @@ def section(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     query.answer()
     context.bot.send_message(update.effective_user.id,f"You've chosen section {query.data}...")
+
     return ConversationHandler.END
 
 # this is a CommandHandler
