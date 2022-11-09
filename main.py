@@ -36,7 +36,7 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(googledict, scope)
 client = gspread.authorize(creds)
 mysheet = client.open("RAW").worksheet("biodata")
 
-SECTION = range(1)
+SECTION, NAME = range(2)
 
 # this is a CommandHandler
 def start_handler(update: Update, context: CallbackContext):
@@ -77,12 +77,30 @@ def section(update: Update, context: CallbackContext) -> int:
     query.answer()
     context.bot.send_message(update.effective_user.id,f"You've chosen section {query.data}...")
 
+    namelist = ["LCP MINGKANG","LCP KHAIRIL","CPL MIHIR"]
+
+    keyboard = [[InlineKeyboardButton(name,callback_data=name)] for name in namelist]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.callback_query.message.reply_text("Choose who you are",reply_markup=reply_markup)
+
+    return NAME
+
+# this is a CallbackQueryHandler
+def name(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    query.answer()
+    context.bot.send_message(update.effective_user.id,f"You've chosen name {query.data}.")
+
     return ConversationHandler.END
 
 # this is a CommandHandler
 def cancel_handler(update: Update, context: CallbackContext) -> int:
     update.message.reply_text("Cancelled. Back to normal.")
     return ConversationHandler.END
+
+# this is a helper function
+def fetch_names(section) -> list:
+
 
 def main():
 
@@ -102,7 +120,8 @@ def main():
     registerConvoHandler = ConversationHandler(
         entry_points=[CommandHandler('start',start_handler),CommandHandler('register',register_handler)],
         states={
-            SECTION: [CallbackQueryHandler(section)]
+            SECTION: [CallbackQueryHandler(section)],
+            NAME: [CallbackQueryHandler(name)]
         },
         fallbacks=[CommandHandler('cancel',cancel_handler)]
     )
