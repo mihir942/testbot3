@@ -98,9 +98,9 @@ def cancel_handler(update: Update, context: CallbackContext) -> int:
     update.message.reply_text("Cancelled. Back to normal.")
     return ConversationHandler.END
 
-# this is a helper function
-def fetch_names(section) -> list:
-
+# # this is a helper function
+# def fetch_names(section) -> list:
+#     pass
 
 def main():
 
