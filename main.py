@@ -2,6 +2,7 @@ import os
 import logging
 from dotenv import load_dotenv
 import gspread
+import numpy
 from oauth2client.service_account import ServiceAccountCredentials
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
