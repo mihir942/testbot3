@@ -54,12 +54,10 @@ def register_handler(update: Update, context: CallbackContext) -> int:
     userid = str(update.message.from_user.id)
     all_userid = mysheet.col_values(4)
 
-    keyboard = [[
-        InlineKeyboardButton("1",callback_data="1"),
-        InlineKeyboardButton("2",callback_data="2"),
-        InlineKeyboardButton("3",callback_data="3"),
-        InlineKeyboardButton("PO",callback_data="PO")
-    ]]
+    all_section_types = mysheet.col_values(5)[1:]
+    all_section_types = list(set(all_section_types))
+    all_section_types.sort()
+    keyboard = [[InlineKeyboardButton(sect,callback_data=sect) for sect in all_section_types]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     registered = userid in all_userid
