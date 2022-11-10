@@ -2,7 +2,6 @@ import os
 import logging
 from dotenv import load_dotenv
 import gspread
-import numpy
 from oauth2client.service_account import ServiceAccountCredentials
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -50,7 +49,6 @@ def start_handler(update: Update, context: CallbackContext):
     if not registered:
         context.bot.send_message(update.effective_user.id,f"Please type /register to register yourself")
 
-
 # this is a CommandHandler
 def register_handler(update: Update, context: CallbackContext) -> int:
     userid = str(update.message.from_user.id)
@@ -78,9 +76,9 @@ def section(update: Update, context: CallbackContext) -> int:
     query.answer()
     context.bot.send_message(update.effective_user.id,f"You've chosen section {query.data}...")
 
-    namelist = ["LCP MINGKANG","LCP KHAIRIL","CPL MIHIR"]
-
-    keyboard = [[InlineKeyboardButton(name,callback_data=name)] for name in namelist]
+    all_values = fetch_all()
+    all_names = [row[0] + " " + row[1] for row in all_values]
+    keyboard = [[InlineKeyboardButton(all_names[i],callback_data=str(i))] for i in range(len(all_values)) if all_values[i][4] == query.data]
     reply_markup = InlineKeyboardMarkup(keyboard)
     update.callback_query.message.reply_text("Choose who you are",reply_markup=reply_markup)
 
@@ -90,7 +88,15 @@ def section(update: Update, context: CallbackContext) -> int:
 def name(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
     query.answer()
-    context.bot.send_message(update.effective_user.id,f"You've chosen name {query.data}.")
+
+    all_values = fetch_all()
+    index = int(query.data)
+    name = all_values[index][0] + " " + all_values[index][1]
+
+    context.bot.send_message(update.effective_user.id,f"Hi, {name}.")
+    userid = update.effective_user.id
+    mysheet.update_cell(index+1,4,userid)
+    context.bot.send_message(update.effective_user.id,f"You're now registered.")
 
     return ConversationHandler.END
 
@@ -99,9 +105,15 @@ def cancel_handler(update: Update, context: CallbackContext) -> int:
     update.message.reply_text("Cancelled. Back to normal.")
     return ConversationHandler.END
 
-# # this is a helper function
-# def fetch_names(section) -> list:
-#     pass
+# helper function
+def fetch_all() -> list:
+    return mysheet.get_all_values()
+
+# helper function
+def fetch_section_rows(section: str) -> list:
+    all_values = fetch_all()
+    section_rows = [row for row in all_values if str(row[4]) == str(section)]
+    return section_rows
 
 def main():
 
