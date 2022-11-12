@@ -1,7 +1,10 @@
 import os
 import logging
-from dotenv import load_dotenv
+import datetime
 import gspread
+import math
+
+from dotenv import load_dotenv
 from oauth2client.service_account import ServiceAccountCredentials
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -35,8 +38,10 @@ scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/au
 creds = ServiceAccountCredentials.from_json_keyfile_dict(googledict, scope)
 client = gspread.authorize(creds)
 mysheet = client.open("RAW").worksheet("biodata")
+header_row = mysheet.row_values(1)
 
 SECTION, NAME = range(2)
+YOURSELF, STARTDATETIME, ENDDATETIME, CONFIRM, PERSON = range(5)
 
 # this is a CommandHandler
 def start_handler(update: Update, context: CallbackContext):
@@ -99,21 +104,181 @@ def name(update: Update, context: CallbackContext) -> int:
     return ConversationHandler.END
 
 # this is a CommandHandler
+def newoff_handler(update: Update, context: CallbackContext) -> int:
+
+    keyboard = [[InlineKeyboardButton("Yes",callback_data="Yes"),InlineKeyboardButton("No",callback_data="No")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.message.reply_text(f"Are you applying for yourself?",reply_markup=reply_markup)
+
+    return YOURSELF
+
+# this is a CallbackQueryHandler
+def yourself(update: Update, context: CallbackContext) -> int:
+    # getting user reply
+    query = update.callback_query
+    query.answer()
+
+    if query.data == "Yes":
+        # select date
+        numdays = 14
+        base = datetime.datetime.today()
+        update.callback_query.message.reply_text(f"Type in start date and time like this: 130522 1400")
+        return STARTDATETIME
+
+    elif query.data == "No":
+        # select person applying on behalf of
+        return PERSON
+
+# this is a MessageHandler
+def start_date_time(update: Update, context: CallbackContext) -> int:
+
+    # getting user reply
+    start_dt = update.message.text
+
+    # checking if our user reply is valid, in (1) format, (2) date, (3) time.
+    if is_valid_date_time(start_dt):
+            # store user selected start date,time
+            context.user_data['start_dt'] = start_dt
+            # input end date, time
+            context.bot.send_message(update.effective_user.id,f"Start: {start_dt}\nType in end date and time")
+            return ENDDATETIME
+    else:
+        context.bot.send_message(update.effective_user.id,"Invalid date/time.")
+        context.bot.send_message(update.effective_user.id,f"Type in start date and time like this: 130522 1400")
+        return STARTDATETIME
+
+# this is a MessageHandler
+def end_date_time(update: Update, context: CallbackContext) -> int:
+
+    # getting user reply
+    end_dt = update.message.text
+    start_dt = context.user_data['start_dt']
+
+    if is_valid_date_time(end_dt) and difference_in_hours(start_dt=start_dt,end_dt=end_dt) % 12 == 0:
+        # store user selected end date,time
+        context.user_data['end_dt'] = end_dt
+
+        off_duration = calculate_off_duration(start_dt=start_dt, end_dt=end_dt)
+        context.user_data['off_duration'] = off_duration
+
+        keyboard = [[InlineKeyboardButton("Yes",callback_data="Yes"),InlineKeyboardButton("No",callback_data="No")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        update.message.reply_text(f"Is this correct?\n\nStart: {start_dt}\nEnd: {end_dt}\nOff Duration: {off_duration} OFF",reply_markup=reply_markup)
+
+        return CONFIRM
+    else:
+        start_dt = context.user_data['start_dt']
+        context.bot.send_message(update.effective_user.id,"Invalid date/time.")
+        context.bot.send_message(update.effective_user.id,f"Start: {start_dt}\nType in end date and time")
+        return ENDDATETIME
+
+# this is a CallbackQueryHandler
+def confirm(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    query.answer()
+    if query.data == "Yes":
+        context.bot.send_message(update.effective_user.id,"Thanks.")
+        # TODO: Update in spreadsheet
+        start_dt = context.user_data['start_dt']
+        end_dt = context.user_data['end_dt']
+        off_duration = context.user_data['off_duration']
+
+        new_apply = start_dt + "-" + end_dt + " (" + str(off_duration) + " OFF)"
+
+        userid = update.effective_user.id
+        cell = mysheet.find(str(userid))
+        row_num = cell.row
+        col_num = header_row.index('Absences') + 1
+
+        # get current Absences
+        cell_value = mysheet.cell(row_num,col_num).value
+
+        if cell_value != None:
+            # turn into list
+            current_list = cell_value.split('\n')
+
+            # append to list
+            current_list.append(new_apply)
+
+            # update cell with "\n".join(list)
+            mysheet.update_cell(row_num,col_num,"\n".join(current_list))
+        else:
+            mysheet.update_cell(row_num,col_num,new_apply)
+
+        # clear persistent data
+        context.user_data.clear()
+        return ConversationHandler.END
+    else:
+        context.bot.send_message(update.effective_user.id,"Let's restart.")
+        context.bot.send_message(update.effective_user.id,f"Type in start date and time like this: 130522 1400")
+        return STARTDATETIME
+
+# this is a CallbackQueryHandler
+def person(update: Update, context: CallbackContext) -> int:
+    return ConversationHandler.END
+
+# this is a CommandHandler
 def cancel_handler(update: Update, context: CallbackContext) -> int:
     update.message.reply_text("Cancelled. Back to normal.")
     return ConversationHandler.END
+
+# this is a CommandHandler
+def getmyoffs_handler(update: Update, context: CallbackContext) -> None:
+    userid = str(update.effective_user.id)
+    cell = mysheet.find(userid)
+    row = cell.row
+    col = header_row.index('Absences') + 1
+
+    cell_value = mysheet.cell(row,col).value
+    update.message.reply_text(f"These are your current offs/leaves etc:\n\n{cell_value}")
 
 # helper function
 def fetch_all() -> list:
     return mysheet.get_all_values()
 
 # helper function
-def fetch_section_rows(section: str) -> list:
-    all_values = fetch_all()
-    section_rows = [row for row in all_values if str(row[4]) == str(section)]
-    return section_rows
+def valid_times() -> list:
+    times = list()
+    for i in range(0,24):
+        time = str(i) + '00'
+        if i < 10: time = '0' + time
+        times.append(time)
+    return times
 
-def main():
+# helper function
+def is_valid_date_time(dt: str) -> bool:
+
+    items = [x for x in dt.strip().split(' ')]
+    items = list(filter(None,items))
+
+    # getting the valid dates
+    base = datetime.datetime.today()
+    valid_dates = [base + datetime.timedelta(days=x) for x in range(14)]
+    valid_dates = [x.strftime('%d%m%y') for x in valid_dates]
+
+    return (len(items) == 2) and (items[0] in valid_dates) and (items[1] in valid_times())
+
+# helper function
+def user_to_datetime(usertext: str):
+    # user text in the form of 171122 1400
+    return datetime.datetime.strptime(usertext,"%d%m%y %H%M")
+
+# helper function
+def difference_in_hours(start_dt: str, end_dt: str) -> int:
+    start_dt = user_to_datetime(usertext=start_dt)
+    end_dt = user_to_datetime(usertext=end_dt)
+
+    delta = end_dt - start_dt
+    diff_in_hours = int(delta.total_seconds() / 60 / 60)
+    return diff_in_hours
+
+# helper function
+def calculate_off_duration(start_dt: str,end_dt: str) -> float:
+    diff = difference_in_hours(start_dt=start_dt, end_dt=end_dt)
+    offs = round(diff/24, 1)
+    return offs
+
+def main() -> None:
 
     load_dotenv()
     TOKEN = os.environ.get("TOKEN")
@@ -137,7 +302,21 @@ def main():
         fallbacks=[CommandHandler('cancel',cancel_handler)]
     )
 
+    newOffConvoHandler = ConversationHandler(
+        entry_points=[CommandHandler('newoff',newoff_handler)],
+        states = {
+            YOURSELF: [CallbackQueryHandler(yourself)],
+            STARTDATETIME: [MessageHandler(Filters.text & ~Filters.command,start_date_time)],
+            ENDDATETIME: [MessageHandler(Filters.text & ~Filters.command, end_date_time)],
+            CONFIRM: [CallbackQueryHandler(confirm)],
+            PERSON: [CallbackQueryHandler(person)]
+        },
+        fallbacks=[CommandHandler('cancel',cancel_handler)]
+    )
+
     updater.dispatcher.add_handler(registerConvoHandler)
+    updater.dispatcher.add_handler(newOffConvoHandler)
+    updater.dispatcher.add_handler(CommandHandler('getmyoffs',getmyoffs_handler))
 
     # We are going to use webhooks on production server
     # but long polling for development on local machine.
@@ -161,40 +340,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-'''
-Workflow:
-
-/start (if registered, 'Hi!'. if not registered, then run /register command):
-/register
-- Ask for section.
-- Depending on section number inputted, fetch and display list of names from section
-- Ask for the number from the list
-- Once number keyed in, register their telegram userid with the spreadsheet
-
-/newoff
-- q1: are you applying for yourself? (yes=continue wif q2. no=ask for section,name)
-- q2: start date and time 021122 1400
-- q3: end date and time 031122 1400
-
-/newleave
-- q1: are you applying for yourself?
-- q2: start date and time 021122 1400
-- q3: start date and time 031122 1400
-
-/newmc
-- q1: are you applying for yourself?
-- q2: start date 021122
-- q3: end date 021122
-
-/newma
-- q1: are you applying for yourself?
-- q2: date and time 031122 1600
-
-/edit
-- q1: choose from list to edit
-- q2: carry on with the relevant questions from above
-
-/cancel, to cancel at anytime
-
-'''
